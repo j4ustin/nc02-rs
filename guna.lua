@@ -2,9 +2,9 @@
 --
 -- qualitiy of movement
 -- e1: volume
--- e2: disintegration
+-- e2: velocity
 -- e3: chaos
--- k2: multiverse-portal
+-- k2:
 -- k3:
 
 sc = softcut
@@ -57,6 +57,7 @@ local samples = {
   }
 }
 
+-- percussion slices w/ pre-programmed velocity scalers
 local percussion = {
   clap={slice={0.0,0.5},vel=0.5},
   rim={slice={1.0,1.2},vel=0.4},
@@ -75,12 +76,16 @@ local percussion = {
   effect_7={slice={7.830,8.70},vel=0.6}
 }
 
+-- percussion sequence
+-- TODO: add more percussion sequencesto click between
 local perc_sequence = {
   {s=1,n="kick"},{s=2,n=nil},{s=3,n="clap"},{s=4,n=nil},
   {s=5,n="kick"},{s=6,n="kick"},{s=7,n="effect_1"},{s=8,n="rim"}
 }
 
--- utility functions
+-- utility functions --
+
+-- debug print
 local function debug(msg)
   if DEBUG then
     print(msg)
@@ -105,6 +110,7 @@ local function table_debug (tbl, indent)
   end
 end
 
+-- utilized to fetch the global volume of the sample
 local function get_sample_level(sample_num)
   if sample_num == 1 then
     return level_perc
@@ -115,7 +121,9 @@ local function get_sample_level(sample_num)
   end
 end
 
--- random generation functions
+-- random generation functions --
+
+-- a fixed random generator
 local function simple_flip(measure)
   if measure == nil then
     measure = 0.5
@@ -127,6 +135,8 @@ local function simple_flip(measure)
   return false
 end
 
+-- a variable random generator the user can input utilizing
+-- the chaos knob
 local function weighted_flip()
   p = math.random(10) / 10
   if p >= chaos then
@@ -153,10 +163,12 @@ local function scale_random(scale_bottom, scale_top)
 end
 
 -- random_engine takes a movement (-1 || 1) and utilizes the history number
--- to generate a random movement either above or below the number (movement). This is used
--- within bounds scale_bottom and scale_top. The random movement is a random number scaled
--- based on the current global chaos + the existing chaos seed generated on init or
--- changed by the amount of randomness introduced by the user. This is the magic function
+-- to generate a random movement either above or below the number (movement).
+-- This is used within bounds scale_bottom and scale_top.
+-- The random movement is a random number scaled based on the current global
+-- chaos + the existing chaos seed generated on init or changed by the amount
+-- of randomness introduced by the user. This is the magic function.
+-- TODO: This probably doesn't work well enough yet, make it work
 local function random_engine(movement, history, scale_bottom, scale_top, center, polar)
   -- if centered and move towards center do nothing. tranquility
   if (movement < 0) and (history == center) then
@@ -231,8 +243,10 @@ local function random_engine(movement, history, scale_bottom, scale_top, center,
   return res
 end
 
+-- Fetch a duration based on the velocity that the user has input.
+-- This will open up areas for more percussion samples to be inserted or changed
+-- from the sequenced version based on the chaos generator.
 local rand_dur = {1,1/2,1/4,1/8,1/16}
-
 local function get_duration()
   if weighted_flip() then
     return rand_dur[math.random(#rand_dur)]
@@ -252,19 +266,23 @@ local function get_duration()
   end
 end
 
--- sample effects
+-- sample effects --
+
+-- pan a voice to a new space
 local function pan(voice, movement, pan_history)
   np = random_engine(movement, pan_history, -1, 1, 0, true)
   sc.pan(voice, np)
   return np
 end
 
+-- flip sample playback
 local function reverse_sample(voice, movement, reverse_state)
   r = reverse_state * -1
   sc.rate(voice, r)
   return r
 end
 
+-- delay voice
 local function delay(v)
   sc.enable(v,1)
   sc.buffer(v, 1)
@@ -286,6 +304,7 @@ local function delay(v)
   sc.rate_slew_time(v, 0.3)
 end
 
+-- tremolo effect
 local function gate_chopper(voice)
   while true do
     clock.sync(get_duration())
@@ -295,6 +314,7 @@ local function gate_chopper(voice)
   end
 end
 
+-- play a sample forwards and backwards
 local loop_num = 0
 local function playback_fw(voice,position)
   if position >= 38.9 then
@@ -308,18 +328,20 @@ local function playback_fw(voice,position)
   end
 end
 
--- sequencer code
-local function sample_one_shot(voice, sample_num, slice_start, slice_end)
+-- sequencing code --
+
+-- play a one shot sample
+local function sample_one_shot(voice, sample_num, vel, slice_start, slice_end)
     sc.position(voice, slice_start)
     sc.loop(voice, 0)
     sc.loop_start(voice, slice_start)
     sc.loop_end(voice, slice_end)
-    sc.level(voice, get_sample_level(sample_num))
+    sc.level(voice, get_sample_level(sample_num)*vel)
     sc.play(voice, 1)
 end
 
+-- beat repeat effect for playback, just repeat it a bunch of times
 local beat_divisors = {8,12,16,24}
-
 local function beat_repeat(voice, sample_num, slice_start, slice_end, repeats)
   for i=1,repeats,1 do
     redraw(true)
@@ -328,6 +350,7 @@ local function beat_repeat(voice, sample_num, slice_start, slice_end, repeats)
   end
 end
 
+-- play a single step. decide whether it should go through the beat repeat
 local function play_step(voice, sample_num, slice_start, slice_end, duration)
   if weighted_flip() and simple_flip() then
     beat_repeat(voice, sample_num, slice_start, slice_end, beat_divisors[math.random(#beat_divisors)])
@@ -335,6 +358,10 @@ local function play_step(voice, sample_num, slice_start, slice_end, duration)
   sample_one_shot(voice, sample_num, slice_start, slice_end, duration)
 end
 
+-- percussion sequencer to be played via a clock. step through sequence to
+-- fetch pre-programmed steps, either play the pre-programmed step or play
+-- a random sample if chaos is high. if nothing then maybe play something
+-- if chaos is high
 local function percussion_sequencer()
   b = 1
   v = 1
@@ -358,6 +385,7 @@ local function percussion_sequencer()
   end
 end
 
+-- init the samples and start running the clocks
 local function init_samples()
   perc_voice = samples[1]
   sc.buffer_read_mono(perc_voice.path,0,perc_voice.start,-1,1,1)
@@ -390,18 +418,6 @@ local function init_samples()
   -- start_echo_voice(5)
 end
 
-local function multiverse_portal()
-  -- upon activation of the portal voices should swap sequencers with each other
-  -- this will create the illusion that the voices were always swapped
-  -- should be a linear movement so a user has 3 universes to teleport between
-  -- simply increment buffer positions to achieve the effect
-end
-
-local frame = 0
-local frame_reset = 240
-local frame_dir = 1
-local counter = 1
-
 -- script start
 function init()
   sc.buffer_clear()
@@ -422,6 +438,7 @@ function init()
   sm:start()
 end
 
+-- simple graphic loop
 local function graphic_loop(f)
   rad = 0.2 * f
   screen.move(65,30)
@@ -440,6 +457,13 @@ local function graphic_loop(f)
   screen.update()
 end
 
+-- redraw counters
+local frame = 0
+local frame_reset = 240
+local frame_dir = 1
+local counter = 1
+
+-- redraw function
 function redraw(glitch)
   if glitch then
     screen.clear()
